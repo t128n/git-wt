@@ -56,8 +56,24 @@ enum Commands {
         name: String,
     },
 
-    /// Print usage information
-    Help,
+    /// Manage configuration
+    Config {
+        #[command(subcommand)]
+        action: Option<ConfigAction>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Initialize config file with all available settings
+    Init {
+        /// Overwrite existing config file if present
+        #[arg(long, short)]
+        force: bool,
+    },
+
+    /// Reset config file to factory defaults
+    Reset,
 }
 
 #[derive(clap::ValueEnum, Clone)]
@@ -104,8 +120,39 @@ fn main() -> Result<()> {
             println!("{}", path.display());
             Ok(())
         }
-        Some(Commands::Help) | None => {
+        Some(Commands::Config { action }) => cmd_config(action),
+        None => {
             print_usage();
+            Ok(())
+        }
+    }
+}
+
+fn cmd_config(action: Option<ConfigAction>) -> Result<()> {
+    match action {
+        Some(ConfigAction::Init { force }) => {
+            let path = Config::init(force)?;
+            println!("Initialized config at {}", path.display());
+            Ok(())
+        }
+        Some(ConfigAction::Reset) => {
+            let path = Config::reset()?;
+            println!("Reset config to factory defaults at {}", path.display());
+            Ok(())
+        }
+        None => {
+            if let Some(path) = Config::config_path() {
+                let status = if path.exists() { "exists" } else { "not found" };
+                println!("Config file: {} ({status})", path.display());
+            } else {
+                println!("Config file: unknown (could not determine home directory)");
+            }
+            println!();
+            println!("Available subcommands:");
+            println!("    init     Initialize config file with all available settings (use --force to overwrite)");
+            println!("    reset    Reset config file to factory defaults");
+            println!();
+            println!("Usage: git-wt config <COMMAND>");
             Ok(())
         }
     }
@@ -120,11 +167,15 @@ fn print_usage() {
     println!("    git wt remove <name> [--force] Remove a worktree");
     println!("    git wt prune                  Clean up stale worktree data");
     println!("    git wt goto <name>            Print worktree path (for cd)");
+    println!("    git wt config [init|reset]    Manage configuration");
     println!("    git wt help                   Print this help message");
     println!();
     println!("OPTIONS:");
     println!("    --force        Force removal even if dirty");
     println!("    --completions <SHELL>  Generate shell completions (bash, zsh, fish, powershell, elvish)");
-    println!();
-    println!("CONFIG: ~/.config/git-wt/config.json");
+    if let Some(path) = Config::config_path() {
+        println!();
+        println!("CONFIG: {}", path.display());
+    }
 }
+

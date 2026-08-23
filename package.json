@@ -1,6 +1,6 @@
 {
   "name": "@t128n/git-wt",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A simpler interface to git worktrees",
   "license": "MIT",
   "private": true,

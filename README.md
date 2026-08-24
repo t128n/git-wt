@@ -53,6 +53,7 @@ You can manage your configuration using the `config` command:
 git wt config        # Print config file path and status
 git wt config init   # Initialize config with full template settings (use --force to overwrite)
 git wt config reset  # Reset config to factory defaults
+git wt config edit   # Open config file in your editor
 ```
 
 git-wt reads config from `~/.config/git-wt/config.json`:
@@ -61,7 +62,8 @@ git-wt reads config from `~/.config/git-wt/config.json`:
 ```json
 {
     "base_worktree_path": "C:\\worktrees",
-    "naming": "structured"
+    "naming": "structured",
+    "default_branch": null
 }
 ```
 
@@ -69,15 +71,18 @@ git-wt reads config from `~/.config/git-wt/config.json`:
 |-----|---------|-------------|
 | `base_worktree_path` | `~/worktrees` | Root directory for worktrees |
 | `naming` | `structured` | `structured` = `<base>/<repo>/<name>`, `flat` = `<base>/<repo>-<name>` |
+| `default_branch` | `null` (auto-detect) | Base branch for new worktrees. Auto-detects from `origin/HEAD` if not set |
 
 ## Usage
 
 ### Add a worktree
 
 ```bash
-git wt add feature-x                    # Create worktree for current branch
+git wt add feature-x                    # Create branch from main (auto-detected) and worktree
 git wt add hotfix origin/main           # Create worktree from specific branch
 ```
+
+If the branch already exists, it will be used. Otherwise, a new branch is created from the main branch (auto-detected from `origin/HEAD`, or configurable via `default_branch`).
 
 ### List worktrees
 

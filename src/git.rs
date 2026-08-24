@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-/// Get the repository root for the current directory.
+use crate::config::Config;
+
 pub fn get_repo_root() -> Result<String> {
     let output = Command::new("git")
         .arg("rev-parse")
@@ -11,7 +12,8 @@ pub fn get_repo_root() -> Result<String> {
         .with_context(|| "Failed to execute `git rev-parse --show-toplevel`")?;
 
     if !output.status.success() {
-        anyhow::bail!("Not inside a git repository");
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!("Not inside a git repository: {}", stderr);
     }
 
     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -23,7 +25,36 @@ pub fn get_repo_root() -> Result<String> {
     Ok(path)
 }
 
-/// Add a worktree at the given path, optionally checking out a specific branch.
+pub fn get_main_branch(config: &Config) -> Result<String> {
+    if let Some(branch) = &config.default_branch {
+        return Ok(branch.clone());
+    }
+
+    let output = Command::new("git")
+        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+        .output()
+        .with_context(|| "Failed to execute `git symbolic-ref refs/remotes/origin/HEAD`")?;
+
+    if output.status.success() {
+        let ref_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Some(branch) = ref_path.strip_prefix("refs/remotes/origin/") {
+            return Ok(branch.to_string());
+        }
+    }
+
+    Ok("main".to_string())
+}
+
+pub fn branch_exists(branch: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--verify"])
+        .arg(branch)
+        .output()
+        .with_context(|| format!("Failed to check if branch '{}' exists", branch))?;
+
+    Ok(output.status.success())
+}
+
 pub fn worktree_add(path: &Path, branch: Option<&str>) -> Result<()> {
     let mut cmd = Command::new("git");
     cmd.arg("worktree").arg("add").arg(path);
@@ -32,18 +63,56 @@ pub fn worktree_add(path: &Path, branch: Option<&str>) -> Result<()> {
         cmd.arg(branch);
     }
 
-    let status = cmd
-        .status()
+    let output = cmd
+        .output()
         .with_context(|| format!("Failed to execute `git worktree add {}`", path.display()))?;
 
-    if !status.success() {
-        anyhow::bail!("`git worktree add {}` exited with status {status}", path.display());
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!(
+            "`git worktree add {}` failed: {}",
+            path.display(),
+            stderr
+        );
     }
 
     Ok(())
 }
 
-/// List all worktrees. Returns raw output lines.
+pub fn worktree_add_with_branch(
+    path: &Path,
+    new_branch: &str,
+    base_branch: &str,
+) -> Result<()> {
+    let output = Command::new("git")
+        .args(["worktree", "add", "-b"])
+        .arg(new_branch)
+        .arg(path)
+        .arg(base_branch)
+        .output()
+        .with_context(|| {
+            format!(
+                "Failed to execute `git worktree add -b {} {} {}`",
+                new_branch,
+                path.display(),
+                base_branch
+            )
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!(
+            "`git worktree add -b {} {} {}` failed: {}",
+            new_branch,
+            path.display(),
+            base_branch,
+            stderr
+        );
+    }
+
+    Ok(())
+}
+
 pub fn worktree_list() -> Result<Vec<String>> {
     let output = Command::new("git")
         .arg("worktree")
@@ -52,7 +121,8 @@ pub fn worktree_list() -> Result<Vec<String>> {
         .with_context(|| "Failed to execute `git worktree list`")?;
 
     if !output.status.success() {
-        anyhow::bail!("`git worktree list` exited with status {}", output.status);
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!("`git worktree list` failed: {}", stderr);
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -61,7 +131,6 @@ pub fn worktree_list() -> Result<Vec<String>> {
     Ok(lines)
 }
 
-/// Remove a worktree at the given path.
 pub fn worktree_remove(path: &Path, force: bool) -> Result<()> {
     let mut cmd = Command::new("git");
     cmd.arg("worktree").arg("remove").arg(path);
@@ -70,30 +139,32 @@ pub fn worktree_remove(path: &Path, force: bool) -> Result<()> {
         cmd.arg("--force");
     }
 
-    let status = cmd
-        .status()
+    let output = cmd
+        .output()
         .with_context(|| format!("Failed to execute `git worktree remove {}`", path.display()))?;
 
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         anyhow::bail!(
-            "`git worktree remove {}` exited with status {status}",
-            path.display()
+            "`git worktree remove {}` failed: {}",
+            path.display(),
+            stderr
         );
     }
 
     Ok(())
 }
 
-/// Prune stale worktree data.
 pub fn worktree_prune() -> Result<()> {
-    let status = Command::new("git")
+    let output = Command::new("git")
         .arg("worktree")
         .arg("prune")
-        .status()
+        .output()
         .with_context(|| "Failed to execute `git worktree prune`")?;
 
-    if !status.success() {
-        anyhow::bail!("`git worktree prune` exited with status {status}");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!("`git worktree prune` failed: {}", stderr);
     }
 
     Ok(())

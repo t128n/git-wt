@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use crate::config::{Config, Naming};
 use crate::git;
 
-/// Resolve the target path for a worktree based on config and naming convention.
 pub fn resolve_worktree_path(config: &Config, repo_root: &str, name: &str) -> PathBuf {
     let repo_name = Path::new(repo_root)
         .file_name()
@@ -19,7 +18,6 @@ pub fn resolve_worktree_path(config: &Config, repo_root: &str, name: &str) -> Pa
     }
 }
 
-/// Create a new worktree.
 pub fn add_worktree(config: &Config, name: &str, branch: Option<&str>) -> Result<()> {
     let repo_root = git::get_repo_root()?;
     let path = resolve_worktree_path(config, &repo_root, name);
@@ -33,14 +31,23 @@ pub fn add_worktree(config: &Config, name: &str, branch: Option<&str>) -> Result
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
-    git::worktree_add(&path, branch)?;
+    if let Some(b) = branch {
+        git::worktree_add(&path, Some(b))?;
+    } else {
+        let main_branch = git::get_main_branch(config)?;
 
-    println!("Created worktree '{}' at {}", name, path.display());
+        if git::branch_exists(name)? {
+            git::worktree_add(&path, Some(name))?;
+        } else {
+            git::worktree_add_with_branch(&path, name, &main_branch)?;
+        }
+    }
+
+    println!("{}", path.display());
 
     Ok(())
 }
 
-/// List all worktrees with friendly names.
 pub fn list_worktrees(config: &Config) -> Result<()> {
     let repo_root = git::get_repo_root()?;
     let lines = git::worktree_list()?;
@@ -72,7 +79,6 @@ fn parse_worktree_line(line: &str, repo_root: &str, config: &Config) -> Option<W
     let wt_path = parts[0];
     let wt_branch = parts[2];
 
-    // Skip the main worktree (the repo root itself)
     if paths_equal(wt_path, repo_root) {
         return None;
     }
@@ -114,7 +120,6 @@ fn extract_worktree_name(wt_path: &str, repo_name: &str, config: &Config) -> Str
         }
     }
 
-    // Fallback: use directory name
     Path::new(wt_path)
         .file_name()
         .unwrap_or_default()
@@ -122,7 +127,6 @@ fn extract_worktree_name(wt_path: &str, repo_name: &str, config: &Config) -> Str
         .to_string()
 }
 
-/// Remove a worktree by name or path.
 pub fn remove_worktree(config: &Config, target: &str, force: bool) -> Result<()> {
     let path = if Path::new(target).exists() {
         PathBuf::from(target)
@@ -142,14 +146,12 @@ pub fn remove_worktree(config: &Config, target: &str, force: bool) -> Result<()>
     Ok(())
 }
 
-/// Prune stale worktree data.
 pub fn prune_worktrees() -> Result<()> {
     git::worktree_prune()?;
     println!("Pruned stale worktrees.");
     Ok(())
 }
 
-/// Get the path for a worktree (for use with cd).
 pub fn goto_worktree(config: &Config, name: &str) -> Result<PathBuf> {
     let repo_root = git::get_repo_root()?;
     let path = resolve_worktree_path(config, &repo_root, name);
@@ -161,7 +163,6 @@ pub fn goto_worktree(config: &Config, name: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Compare two path strings, normalizing separators and case for cross-platform support.
 fn paths_equal(a: &str, b: &str) -> bool {
     let a_lower = a.to_lowercase();
     let b_lower = b.to_lowercase();
@@ -180,6 +181,7 @@ mod tests {
         Config {
             base_worktree_path: PathBuf::from("/worktrees"),
             naming: Naming::Structured,
+            default_branch: None,
         }
     }
 

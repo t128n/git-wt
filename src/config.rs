@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     pub base_worktree_path: PathBuf,
     pub naming: Naming,
+    pub default_branch: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -24,6 +25,7 @@ impl Default for Config {
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("worktrees"),
             naming: Naming::default(),
+            default_branch: None,
         }
     }
 }
@@ -55,12 +57,16 @@ impl Config {
     pub fn init(force: bool) -> Result<PathBuf> {
         let path = Self::config_path().context("Could not determine user home directory")?;
         if path.exists() && !force {
-            anyhow::bail!("Config file already exists at {}. Use --force to overwrite.", path.display());
+            anyhow::bail!(
+                "Config file already exists at {}. Use --force to overwrite.",
+                path.display()
+            );
         }
 
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory {}", parent.display())
+            })?;
         }
 
         let default_wt = dirs::home_dir()
@@ -70,10 +76,11 @@ impl Config {
         let template_config = Config {
             base_worktree_path: default_wt,
             naming: Naming::Structured,
+            default_branch: None,
         };
 
-        let json = serde_json::to_string_pretty(&template_config)
-            .context("Failed to serialize config")?;
+        let json =
+            serde_json::to_string_pretty(&template_config).context("Failed to serialize config")?;
         std::fs::write(&path, json)
             .with_context(|| format!("Failed to write config file {}", path.display()))?;
 
@@ -83,8 +90,9 @@ impl Config {
     pub fn reset() -> Result<PathBuf> {
         let path = Self::config_path().context("Could not determine user home directory")?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory {}", parent.display())
+            })?;
         }
 
         let default_config = Config::default();
@@ -107,7 +115,6 @@ impl Config {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +124,7 @@ mod tests {
         let config = Config::default();
         assert!(config.base_worktree_path.to_string_lossy().contains("worktrees"));
         assert_eq!(config.naming, Naming::Structured);
+        assert_eq!(config.default_branch, None);
     }
 
     #[test]
@@ -131,5 +139,19 @@ mod tests {
         let json = r#"{"base_worktree_path": "/tmp/wt"}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.naming, Naming::Structured);
+    }
+
+    #[test]
+    fn default_branch_deserialize() {
+        let json = r#"{"default_branch": "develop"}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.default_branch, Some("develop".to_string()));
+    }
+
+    #[test]
+    fn default_branch_null() {
+        let json = r#"{"default_branch": null}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.default_branch, None);
     }
 }

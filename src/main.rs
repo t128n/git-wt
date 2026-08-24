@@ -2,8 +2,9 @@ mod config;
 mod git;
 mod worktree;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::process::Command;
 
 use config::Config;
 
@@ -74,6 +75,9 @@ enum ConfigAction {
 
     /// Reset config file to factory defaults
     Reset,
+
+    /// Open config file in editor
+    Edit,
 }
 
 #[derive(clap::ValueEnum, Clone)]
@@ -89,7 +93,6 @@ enum Shell {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Handle shell completion generation
     if let Some(shell) = cli.completions {
         use clap::CommandFactory;
         let mut cmd = Cli::command();
@@ -140,6 +143,7 @@ fn cmd_config(action: Option<ConfigAction>) -> Result<()> {
             println!("Reset config to factory defaults at {}", path.display());
             Ok(())
         }
+        Some(ConfigAction::Edit) => cmd_config_edit(),
         None => {
             if let Some(path) = Config::config_path() {
                 let status = if path.exists() { "exists" } else { "not found" };
@@ -151,11 +155,44 @@ fn cmd_config(action: Option<ConfigAction>) -> Result<()> {
             println!("Available subcommands:");
             println!("    init     Initialize config file with all available settings (use --force to overwrite)");
             println!("    reset    Reset config file to factory defaults");
+            println!("    edit     Open config file in editor");
             println!();
             println!("Usage: git-wt config <COMMAND>");
             Ok(())
         }
     }
+}
+
+fn cmd_config_edit() -> Result<()> {
+    let path = Config::config_path().context("Could not determine user home directory")?;
+
+    if !path.exists() {
+        Config::init(false)?;
+    }
+
+    let editor = std::env::var("EDITOR").ok();
+
+    let editors: Vec<String> = if let Some(ed) = editor {
+        vec![ed]
+    } else if cfg!(windows) {
+        vec!["notepad".to_string()]
+    } else {
+        vec!["vim".to_string(), "nano".to_string(), "vi".to_string()]
+    };
+
+    for editor in &editors {
+        let status = Command::new(editor).arg(&path).status();
+
+        match status {
+            Ok(s) if s.success() => return Ok(()),
+            Ok(_) => continue,
+            Err(_) => continue,
+        }
+    }
+
+    anyhow::bail!(
+        "No editor found. Set EDITOR environment variable or install vim/nano/vi"
+    )
 }
 
 fn print_usage() {
@@ -167,7 +204,7 @@ fn print_usage() {
     println!("    git wt remove <name> [--force] Remove a worktree");
     println!("    git wt prune                  Clean up stale worktree data");
     println!("    git wt goto <name>            Print worktree path (for cd)");
-    println!("    git wt config [init|reset]    Manage configuration");
+    println!("    git wt config [init|reset|edit] Manage configuration");
     println!("    git wt help                   Print this help message");
     println!();
     println!("OPTIONS:");
@@ -178,4 +215,3 @@ fn print_usage() {
         println!("CONFIG: {}", path.display());
     }
 }
-
